@@ -1,0 +1,109 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import cv2
+import os
+import tensorflow as tf
+from keras.models import load_model
+from tkinter import *
+import tkinter.messagebox
+import PIL.Image
+import PIL.ImageTk
+from tkinter import filedialog
+import csv
+from transformers import pipeline  # For Generative AI
+
+# Load the CSV file
+file = open('calorie.csv')
+csvreader = csv.reader(file)
+header = next(csvreader)
+DATADIR = "dataset"
+
+# All the categories your neural network detects
+CATEGORIES = os.listdir(DATADIR)
+int_list = [int(x) for x in CATEGORIES]
+int_list = sorted(int_list)
+CATEGORIES = [str(x) for x in int_list]
+print(CATEGORIES)
+
+# Initialize GUI
+root = Tk()
+root.title("Calorie Detection")
+root.state('zoomed')
+root.configure(bg='#D3D3D3')
+root.resizable(width=True, height=True)
+value = StringVar()
+panel = Label(root)
+model = tf.keras.models.load_model("CNN.model")
+
+# Initialize Generative AI pipeline for recommendations
+generator = pipeline("text-generation", model="gpt2")
+
+def prepare(file):
+    IMG_SIZE = 50
+    img_array = cv2.imread(file, 1)
+    new_array = cv2.resize(img_array, (IMG_SIZE, IMG_SIZE))
+    new_array = np.expand_dims(new_array, axis=0)
+    return new_array
+
+def generate_review(food_name, calorie_count):
+    prompt = (
+        f"i am going to eat {calorie_count} calories. "
+        "give information about my balacnced calorie level "
+    )
+    try:
+        review = generator(prompt, max_length=200, num_return_sequences=1, do_sample=True)[0]['generated_text']
+        return review
+    except Exception as e:
+        return f"Error generating review: {str(e)}"
+
+def detect(filename):
+    prediction = model.predict(prepare(filename))
+    prediction = list(prediction[0])
+    print(prediction)
+    l = CATEGORIES[prediction.index(max(prediction))]
+    print(l)
+    value.set(l)
+    i = int(prediction.index(max(prediction))) + 1
+
+    # Read CSV and find the matching food item
+    file.seek(0)  # Reset the file reader
+    next(csvreader)  # Skip the header
+    for row in csvreader:
+        if int(row[0]) == i:
+            print(row)
+            food_name = row[1]
+            calorie_count = row[5]
+            nutritional_info = (
+                f"{header[1]}: {row[1]}\n"
+                f"{header[2]}: {row[2]}\n"
+                f"{header[3]}: {row[3]}\n"
+                f"{header[4]}: {row[4]}\n"
+                f"{header[5]}: {row[5]}\n"
+            )
+            
+            # Generate review using AI
+            review = generate_review(food_name, calorie_count)
+
+            # Display information and review
+            tkinter.messagebox.showinfo("Food Details", nutritional_info + "\n\nReview:\n" + review)
+
+
+def ClickAction(event=None):
+    filename = filedialog.askopenfilename()
+    img = PIL.Image.open(filename)
+    img = img.resize((250, 250))
+    img = PIL.ImageTk.PhotoImage(img)
+    global panel
+    panel = Label(root, image=img)
+    panel.image = img
+    panel = panel.place(relx=0.435, rely=0.3)
+    detect(filename)
+
+# GUI Buttons and Labels
+button = Button(root, text='CHOOSE FILE', font=(None, 18), activeforeground='red', bd=20, bg='cyan', relief=RAISED, height=3, width=20, command=ClickAction)
+button.place(relx=0.40, rely=0.05)
+
+result = Label(root, textvariable=value, font=(None, 20))
+result.place(relx=0.465, rely=0.7)
+
+root.mainloop()
